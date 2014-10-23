@@ -12,6 +12,11 @@ function panic(error) {
     })
 }
 
+/*
+    thunk(function (cb) {
+        cb(null, 'value')
+    })
+*/
 function thunk(fn) {
     if (this && this.constructor === thunk) {
         throw new TypeError(
@@ -20,14 +25,14 @@ function thunk(fn) {
     var noCallback = true
     var called = false
     var list = []
-    var err, val
+    var args, ctx = void 0
     try {
-        fn(function (error, value) {
+        fn(function (err) {
             if (called) { return }
             called = true
 
-            err = error
-            val = value
+            ctx = this
+            args = arguments
 
             // throw uncaught exception if no cb until next tick
             if (err && noCallback) {
@@ -39,10 +44,12 @@ function thunk(fn) {
             }
 
             list.forEach(function (cb) {
+                // async error isolation:
+                // error from one callback should not affect others
                 try {
-                    cb(err, val) // no exception allowed
+                    cb.apply(ctx, args)
                 } catch (error) {
-                    panic(error) // crash program
+                    panic(error) // rethrow in next tick
                 }
             })
             list = null
@@ -50,40 +57,49 @@ function thunk(fn) {
     } catch (error) {
         if (!called) {
             called = true
-            err = error
+            args = [error]
         }
     }
 
-    return function __thunk__(cb) {
+    function __thunk__(cb) {
         noCallback = false
+
         // convert thunk to promise if length === 2
+        // e.g. new Promise(__thunk__) ==> new promise instance
         if (arguments.length === 2) {
             var resolve = arguments[0]
             var reject  = arguments[1]
-            if (called) {
+            __thunk__(function (err, val) {
                 err ? reject(err) : resolve(val)
-            } else {
-                list.push(function (err, val) {
-                    err ? reject(err) : resolve(val)
-                })
-            }
+            })
             return
         }
 
         if (called) {
+            // error isolation
+            // isolate this sync error to be consistent
+            // with async error isolation
             try {
-                cb(err, val) // no exception allowed
+                cb.apply(ctx, args)
             } catch (error) {
-                panic(error) // crash program
+                panic(error) // re-throw in next tick
             }
         } else {
             list.push(cb)
         }
     }
+
+    // if really necessary, we can add `.then` to thunk
+    // and then it is just a promise.
+    // __thunk__.then = function (onFulfilled, onRejected) {
+    //     return new Promise(__thunk__).then(onFulfilled, onRejected)
+    // }
+
+    return __thunk__
 }
 exports.Thunk = exports.thunk = thunk
 
-// TODO: compatibale with js world w/o Function.name ?
+// TODO: compatible with js world w/o Function.name ?
 function isThunk(obj) {
     return typeof obj === 'function' && obj.name === '__thunk__'
 }
