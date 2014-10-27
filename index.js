@@ -6,10 +6,15 @@ module.exports = exports = thunk
 var nextTick = (process && process.nextTick) || setImmediate
             || function (fn) { setTimeout(fn, 0) }
 
-function panic(error) {
-    nextTick(function () {
-        throw error
-    })
+// error isolation
+function tryCatch(fn, ctx, args) {
+    try {
+        fn.apply(ctx, args)
+    } catch (e) {
+        nextTick(function () {
+            throw e // error within callback
+        })
+    }
 }
 
 /*
@@ -25,41 +30,32 @@ function thunk(fn) {
     var noCallback = true
     var called = false
     var list = []
-    var args, ctx = void 0
-    try {
-        fn(function (err) {
-            if (called) { return }
-            called = true
+    var ctx, args
 
-            ctx = this
-            args = arguments
+    fn(function (err) {
+        if (called) { return }
+        called = true
 
-            // throw uncaught exception if no cb until next tick
-            if (err && noCallback) {
-                nextTick(function () {
-                    if (noCallback) {
-                        throw err // uncaught exception
-                    }
-                })
-            }
+        ctx = this
+        args = arguments
 
-            list.forEach(function (cb) {
-                // async error isolation:
-                // error from one callback should not affect others
-                try {
-                    cb.apply(ctx, args)
-                } catch (error) {
-                    panic(error) // rethrow in next tick
+        // only enable it in develop env ?
+        // throw uncaught exception if no cb until next tick
+        if (err && noCallback) {
+            nextTick(function () {
+                if (noCallback) {
+                    throw err // uncaught exception
                 }
             })
-            list = null
-        })
-    } catch (error) {
-        if (!called) {
-            called = true
-            args = [error]
         }
-    }
+
+        for (var i = 0; i < list.length; i++) {
+            // async error isolation:
+            // error from one callback should not affect others
+            tryCatch(list[i], ctx, args)
+        }
+        list = null
+    })
 
     function __thunk__(cb) {
         noCallback = false
@@ -79,11 +75,7 @@ function thunk(fn) {
             // error isolation
             // isolate this sync error to be consistent
             // with async error isolation
-            try {
-                cb.apply(ctx, args)
-            } catch (error) {
-                panic(error) // re-throw in next tick
-            }
+            tryCatch(cb, ctx, args)
         } else {
             list.push(cb)
         }
@@ -99,7 +91,7 @@ function thunk(fn) {
 }
 exports.Thunk = exports.thunk = thunk
 
-// TODO: compatible with js world w/o Function.name ?
+// TODO: compatible with js world w/o Function.name ???
 function isThunk(obj) {
     return typeof obj === 'function' && obj.name === '__thunk__'
 }
