@@ -30,6 +30,121 @@ thunkFn(function (err, val) {
 new Promise(thunkFn).then(console.log) // => 'Hi'
 ```
 
+## Thunk <=> Promise
+
+It's super easy to convert one to the other.
+
+* do `thunk.from(promise)` to convert promise to thunk function
+* do `new Promise(thunkFn)` to convert thunk function to promise
+
+Note: you should not use any falsy value (`false`, `null`, `undefined`, `0`, etc) as exception.
+
+## Thunk vs Promise
+
+Both thunk and promise are immutable and eager (execution). But thunk has following difference:
+
+* Thunk has **no chaining**. Unlike `promise.then`, `thunkFn(cb)` will **NOT** return another thunk. Use generator / asyncFn solution to resolve sequential thunks or promises.
+* Thunk is **synchronously**. It will callback synchronously whenever data is ready.
+* Thunk has **no** static methods like `.all`, `.race`. The equivalence are provided by different modules:
+    * `.all`: check [gocsp-all](https://github.com/gyson/gocsp-all)
+    * `.race`: check [gocsp-select](https://github.com/gyson/gocsp-select)
+* Thunk will **not** catch exception within execute function (from `thunk( executeFn )`).
+
+## Error Isolation
+
+The error / exception within cb should not affect others.
+
+The basic policy of error handling within callbacks is not allowing exception. If it does, the error will be caught and re-throw in next tick, which may crash program (add listener to prevent crash, e.g.  `process.on('uncaughtException', listener)`).
+
+Example:
+```js
+var thunkFn = thunk(function (cb) {
+    setTimeout(function () {
+        cb(null, 123)
+    }, 1000)
+})
+thunkFn(function cb() {
+    // this exception will be caught
+    // and re-throw in nextTick
+    throw new Error()
+})
+// add listener to process to prevent potential crash
+process.on('uncaughtException', listener)
+```
+
+It will be troublesome to have sync / async callbacks without error isolation.
+
+## Uncaught Exception
+
+Thunk should not swallow exceptions.
+
+If a thunkFn is rejected (e.g. `cb(new Error)`) and it has no listeners (callbacks), it will wait until next tick, if still no listeners, it will throw error globally, which probably will crash the program. To prevent crash, you can simply add a noop listener to thunk function or add a listener on `process.on('uncaughtException', listener)`.
+
+Example:
+```js
+// thunk function has no listener, but it is rejected
+// therefore, it will be re-throw in next tick if there
+// is no listener at that time
+var thunk = require('gocsp-thunk')
+var thunkFn = thunk(function (cb) {
+    cb(new Error)
+})
+```
+
+Add noop listener to prevent crash:
+```js
+thunkFn(function noop() {})
+```
+
+Add listener on process:
+```js
+process.on('uncaughtException', function (err) {
+    // ...
+})
+```
+
+## Sync or Async ?
+
+`thunkFunction(cb)` will invoke `cb` as soon as data is ready, which means if data is already there, `cb` will be invoke immediately / synchronously.
+
+You may notice that this will lead the execution of `cb` be indeterministic (aka. [zalgo](http://blog.izs.me/post/59142742143/designing-apis-for-asynchrony)). Then following code will help you to check if it's sync or async.
+
+```js
+var called = false
+thunk(function () {
+    called = true
+    // exception is isolated, even you
+    // throw exception here, it will not
+    // affect outside of this callback function
+})
+if (called) {
+    // it's sync
+} else {
+    // it's async
+}
+```
+
+Also, the coroutine solution will help to determine the order of execution, as following.
+
+```js
+var co = require('gocsp-co')
+co(function* () {
+    // do first
+    yield thunkFunction // wait
+    // do last
+})()
+```
+
+Another problem with sync call is stack overflow when deep recursive sync call. Hope this could be solved by ES6 proper tail call ?
+
+Anyway, you can always convert thunk function to promise if you want to ensure zalgo-free.
+
+```js
+new Promise(thunkFunction).then(function () {
+    // do it async
+})
+```
+
 ## API Reference
 ### `thunk( executor )`
 
@@ -54,9 +169,9 @@ thunkFn(function (err, val) {
 thunk(cb => fs.readFile('path', 'utf8', cb))
 ```
 ---
-### `new Promise( thunk_function )`
+### `new Promise( thunkFunction )`
 
-Convert a thunk function into a Promise instance
+Convert a thunk function to a Promise instance
 
 ```js
 // convert to Native Promise
@@ -97,7 +212,7 @@ thunk.isThunk(thunk(cb => cb())) // => true
 ### `thunk.ify( fn )` or `thunk.thunkify( fn )`
 
 Wrap node style function (callback as last argument)
-into one which returns a thunk
+to one which returns a thunk
 
 Example:
 ```js
@@ -126,8 +241,8 @@ co(function *(){
     yield client.set('foo', '123')
     yield client.set('bar', '456')
 
-    console.log('get foo:', yield client.get('foo'))
-    console.log('get bar:', yield client.get('bar'))
+    console.log('get foo:', yield client.get('foo')) // => 123
+    console.log('get bar:', yield client.get('bar')) // => 456
 
     console.log(yield client.quit())
 })()
@@ -137,5 +252,7 @@ co(function *(){
 
 * [thunks](https://github.com/teambition/thunks)
 * [thunkify](https://github.com/tj/node-thunkify)
-* [promise](https://github.com/domenic/promises-unwrapping)
-* [bluebird](https://github.com/petkaantonov/bluebird)
+
+## License
+
+MIT

@@ -39,7 +39,6 @@ function thunk(fn) {
         ctx = this
         args = arguments
 
-        // only enable it in develop env ?
         // throw uncaught exception if no cb until next tick
         if (err && noCallback) {
             nextTick(function () {
@@ -110,7 +109,7 @@ function thunkify(fn) {
     if (typeof fn !== 'function') {
         throw new TypeError(fn + ' must be function')
     }
-    return function __thunkified__() {
+    return function /*__thunkified__*/() {
         var ctx = this
         var len = arguments.length
         var args = new Array(len + 1)

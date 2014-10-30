@@ -9,6 +9,7 @@
   "author": "gyson <eilian.yunsong@gmail.com>",
   "license": "MIT",
   "devDependencies": {
-    "bluebird": "^2.3.6"
+    "bluebird": "^2.3.6",
+    "thunkify": "^2.1.2"
   }
 }
