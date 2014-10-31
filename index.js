@@ -99,7 +99,7 @@ function isThunk(obj) {
 
 // compatible with js world w/o Function.name (e.g. IE)
 if ((function named() {}).name !== 'named') {
-    _thunk = thunk
+    var _thunk = thunk
     thunk = function (fn) {
         var th = _thunk(fn)
         th.__thunk__ = true
