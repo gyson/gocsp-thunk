@@ -29,8 +29,7 @@ function thunk(fn) {
     }
     var noCallback = true
     var called = false
-    var list = []
-    var ctx, args
+    var ctx, args, list
 
     fn(function (err) {
         if (called) { return }
@@ -47,13 +46,14 @@ function thunk(fn) {
                 }
             })
         }
-
-        for (var i = 0; i < list.length; i++) {
-            // async error isolation:
-            // error from one callback should not affect others
-            tryCatch(list[i], ctx, args)
+        if (list) {
+            for (var i = 0; i < list.length; i++) {
+                // async error isolation:
+                // error from one callback should not affect others
+                tryCatch(list[i], ctx, args)
+            }
+            list = null
         }
-        list = null
     })
 
     function __thunk__(cb) {
@@ -76,7 +76,11 @@ function thunk(fn) {
             // with async error isolation
             tryCatch(cb, ctx, args)
         } else {
-            list.push(cb)
+            if (list) {
+                list.push(cb)
+            } else {
+                list = [cb]
+            }
         }
     }
 
@@ -88,12 +92,25 @@ function thunk(fn) {
 
     return __thunk__
 }
-exports.Thunk = exports.thunk = thunk
 
-// TODO: compatible with js world w/o Function.name ???
 function isThunk(obj) {
     return typeof obj === 'function' && obj.name === '__thunk__'
 }
+
+// compatible with js world w/o Function.name (e.g. IE)
+if ((function named() {}).name !== 'named') {
+    _thunk = thunk
+    thunk = function (fn) {
+        var th = _thunk(fn)
+        th.__thunk__ = true
+        return th
+    }
+    isThunk = function (obj) {
+        return typeof obj === 'function' && obj.__thunk__
+    }
+}
+
+exports.Thunk = exports.thunk = thunk
 exports.isThunk = isThunk
 
 function from(promise) {
