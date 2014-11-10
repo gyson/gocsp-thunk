@@ -18,8 +18,8 @@ function tryCatch(fn, ctx, args) {
 }
 
 /*
-    thunk(function (cb) {
-        cb(null, 'value')
+    thunk(function (done) {
+        done(null, 'value')
     })
 */
 function thunk(fn) {
@@ -84,10 +84,12 @@ function thunk(fn) {
         }
     }
 
-    // if really necessary, we can add `.then` to thunk
-    // and then it is just a promise.
-    // __thunk__.then = function (onFulfilled, onRejected) {
-    //     return new Promise(__thunk__).then(onFulfilled, onRejected)
+    // when es7 async function is available,
+    // make thunk awaitable by adding `.then` property
+    // if (Promise) {
+    //     __thunk__.then = function (onFulfilled, onRejected) {
+    //         return new Promise(__thunk__).then(onFulfilled, onRejected)
+    //     }
     // }
 
     return __thunk__
