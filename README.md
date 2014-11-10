@@ -145,6 +145,17 @@ new Promise(thunkFunction).then(function () {
 })
 ```
 
+## Awaitable Thunk
+
+Planning to add `.then` to thunk when ES7 async/await is everywhere.
+
+Example:
+```js
+async function example() {
+    assert('ok' === await thunk(done => done(null, 'ok')))
+}
+```
+
 ## API Reference
 ### `thunk( executor )`
 
