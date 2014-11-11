@@ -83,25 +83,7 @@ function thunk(fn) {
             }
         }
     }
-
-    // make thunk awaitable (ES7 async/await) -- prefer alterative 1
-    //
-    // alterantive 1: not return promise, minimized one
-    //
-    // __thunk__.then = function (onFulfilled, onRejected) {
-    //     assert(typeof onFulfilled === 'function')
-    //     assert(typeof onRejected  === 'function')
-    //     __thunk__(onFulfilled, onRejected)
-    // }
-    //
-    // alternative 2: return a promise
-    //
-    // if (Promise) {
-    //     __thunk__.then = function (onFulfilled, onRejected) {
-    //         return new Promise(__thunk__).then(onFulfilled, onRejected)
-    //     }
-    // }
-
+    
     return __thunk__
 }
 
