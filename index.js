@@ -57,7 +57,7 @@ function thunk(fn, onCancel) {
         }
     })
 
-    return function __thunk__() {
+    return function __thunk__(arg0, arg1) {
         switch (arguments.length) {
         case 0:
             // cancel
@@ -71,46 +71,60 @@ function thunk(fn, onCancel) {
             list = null
             onCancel()
             return true
+
         case 1:
             // check state of thunk
             // thunkFn('isDone') => boolean
             // thunkFn('isCancelled') => boolean
-            // if (arguments[0] === 'isDone') {
-            //     return called
-            // }
-            // if (arguments[0] === 'isCancelled') {
-            //     return cancelled
-            // }
-            // if (arguments[0] === 'isCancellable') {
-            //     return typeof onCancel === 'function'
-            // }
-            if (cancelled) {
-                throw new Error('Cannot listen after cancellation')
-                // return false // fail to listen a cancalled thunk
-            }
-            noCallback = false
-            if (called) {
-                // error isolation
-                // isolate this sync error to be consistent
-                // with async error isolation
-                tryCatch(arguments[0], ctx, args)
-            } else {
-                if (list) {
-                    list.push(arguments[0])
-                } else {
-                    list = [arguments[0]]
+            switch (arg0) {
+            case 'isDone':
+                return called
+
+            case 'isCancelled':
+                return cancelled
+
+            case 'isCancellable':
+                return typeof onCancel === 'function'
+
+            case 'cancel':
+                return __thunk__()
+
+            default:
+                if (typeof arg0 !== 'function') {
+                    throw new Error(arg0 +
+                        ' is not a valid command (isDone, isCancelled,' +
+                        ' isCancellable, cancel) or function')
                 }
+                if (cancelled) {
+                    throw new Error('Cannot listen after cancellation')
+                    // return false // fail to listen a cancalled thunk
+                }
+                noCallback = false
+                if (called) {
+                    // error isolation
+                    // isolate this sync error to be consistent
+                    // with async error isolation
+                    tryCatch(arg0, ctx, args)
+                } else {
+                    if (list) {
+                        list.push(arg0)
+                    } else {
+                        list = [arg0]
+                    }
+                }
+                return
             }
-            return
+
         case 2:
             // convert thunk to promise if length === 2
             // e.g. new Promise(__thunk__) ==> new promise instance
-            var resolve = arguments[0]
-            var reject  = arguments[1]
+            var resolve = arg0
+            var reject  = arg1
             __thunk__(function (err, val) {
                 err ? reject(err) : resolve(val)
             })
             return
+
         default:
             throw new Error('invalid number of arguments')
         }

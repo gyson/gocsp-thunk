@@ -145,6 +145,29 @@ new Promise(thunkFunction).then(function () {
 })
 ```
 
+## Cancellation
+
+You could cancel the thunk operation
+
+Example:
+```js
+function timeout(time) {
+    var ref
+    return thunk(function init(done) {
+        ref = setTimeout(done, time)
+    }, onCancel() {
+        clearTimeout(ref)
+    })
+}
+
+var fn = timeout(1000)
+fn(function () {
+    doSomethingCool()
+})
+
+fn('cancel')
+```
+
 ## API Reference
 ### `thunk( executor )`
 
