@@ -22,17 +22,18 @@ function tryCatch(fn, ctx, args) {
         done(null, 'value')
     })
 */
-function thunk(fn) {
+function thunk(fn, onCancel) {
     if (this && this.constructor === thunk) {
         throw new TypeError(
             'thunk is not a constructor function, call it w/o `new`')
     }
     var noCallback = true
+    var cancelled = false
     var called = false
     var ctx, args, list
 
     fn(function (err) {
-        if (called) { return }
+        if (called || cancelled) { return }
         called = true
 
         ctx = this
@@ -56,35 +57,64 @@ function thunk(fn) {
         }
     })
 
-    function __thunk__(cb) {
-        noCallback = false
-
-        // convert thunk to promise if length === 2
-        // e.g. new Promise(__thunk__) ==> new promise instance
-        if (arguments.length === 2) {
+    return function __thunk__() {
+        switch (arguments.length) {
+        case 0:
+            // cancel
+            if (typeof onCancel !== 'function') {
+                throw new Error('This thunk is uncancellable')
+            }
+            if (called || cancelled) {
+                return false
+            }
+            cancelled = true
+            list = null
+            onCancel()
+            return true
+        case 1:
+            // check state of thunk
+            // thunkFn('isDone') => boolean
+            // thunkFn('isCancelled') => boolean
+            // if (arguments[0] === 'isDone') {
+            //     return called
+            // }
+            // if (arguments[0] === 'isCancelled') {
+            //     return cancelled
+            // }
+            // if (arguments[0] === 'isCancellable') {
+            //     return typeof onCancel === 'function'
+            // }
+            if (cancelled) {
+                throw new Error('Cannot listen after cancellation')
+                // return false // fail to listen a cancalled thunk
+            }
+            noCallback = false
+            if (called) {
+                // error isolation
+                // isolate this sync error to be consistent
+                // with async error isolation
+                tryCatch(arguments[0], ctx, args)
+            } else {
+                if (list) {
+                    list.push(arguments[0])
+                } else {
+                    list = [arguments[0]]
+                }
+            }
+            return
+        case 2:
+            // convert thunk to promise if length === 2
+            // e.g. new Promise(__thunk__) ==> new promise instance
             var resolve = arguments[0]
             var reject  = arguments[1]
             __thunk__(function (err, val) {
                 err ? reject(err) : resolve(val)
             })
             return
-        }
-
-        if (called) {
-            // error isolation
-            // isolate this sync error to be consistent
-            // with async error isolation
-            tryCatch(cb, ctx, args)
-        } else {
-            if (list) {
-                list.push(cb)
-            } else {
-                list = [cb]
-            }
+        default:
+            throw new Error('invalid number of arguments')
         }
     }
-    
-    return __thunk__
 }
 
 function isThunk(obj) {
