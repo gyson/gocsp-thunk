@@ -7,9 +7,15 @@ var nextTick = (process && process.nextTick) || setImmediate
             || function (fn) { setTimeout(fn, 0) }
 
 // error isolation
-function tryCatch(fn, ctx, args) {
+function tryCatch(fn, args) {
     try {
-        fn.apply(ctx, args)
+        // little optimization for common case
+        switch (args.length) {
+        case 0:  return fn()
+        case 1:  return fn(args[0])
+        case 2:  return fn(args[0], args[1])
+        default: return fn.apply(void 0, args)
+        }
     } catch (e) {
         nextTick(function () {
             throw e // error within callback
@@ -30,30 +36,30 @@ function thunk(fn, onCancel) {
     var noCallback = true
     var cancelled = false
     var called = false
-    var ctx, args, list
+    var args, first, rest = []
 
-    fn(function (err) {
+    fn(function done(err) {
         if (called || cancelled) { return }
         called = true
-
-        ctx = this
-        args = arguments
-
-        // throw uncaught exception if no cb until next tick
-        if (err && noCallback) {
-            nextTick(function () {
-                if (noCallback) {
-                    throw err // uncaught exception
-                }
-            })
+        //args = arguments
+        args = new Array(arguments.length)
+        for (var i = 0; i < arguments.length; i++) {
+            args[i] = arguments[i]
         }
-        if (list) {
-            for (var i = 0; i < list.length; i++) {
-                // async error isolation:
-                // error from one callback should not affect others
-                tryCatch(list[i], ctx, args)
+
+        if (noCallback) {
+            if (err) {
+                nextTick(function () {
+                    if (noCallback) {
+                        throw err // uncaught exception
+                    }
+                })
             }
-            list = null
+        } else {
+            tryCatch(first, args)
+            for (var i = 0; i < rest.length; i++) {
+                tryCatch(rest[i], args)
+            }
         }
     })
 
@@ -68,9 +74,10 @@ function thunk(fn, onCancel) {
                 return false
             }
             cancelled = true
-            list = null
+            first = null // clear callbacks if any
+            rest = null
             onCancel()
-            return true
+            return true // return onCancel() ?
 
         case 1:
             // check state of thunk
@@ -99,19 +106,19 @@ function thunk(fn, onCancel) {
                     throw new Error('Cannot listen after cancellation')
                     // return false // fail to listen a cancalled thunk
                 }
-                noCallback = false
                 if (called) {
                     // error isolation
                     // isolate this sync error to be consistent
                     // with async error isolation
-                    tryCatch(arg0, ctx, args)
+                    tryCatch(arg0, args)
                 } else {
-                    if (list) {
-                        list.push(arg0)
+                    if (noCallback) {
+                        first = arg0
                     } else {
-                        list = [arg0]
+                        rest.push(arg0)
                     }
                 }
+                noCallback = false
                 return
             }
 
@@ -150,6 +157,21 @@ if ((function named() {}).name !== 'named') {
 
 exports.Thunk = exports.thunk = thunk
 exports.isThunk = isThunk
+
+// need to optimize `resolve` and `reject` ?
+// function resolve(obj) {
+//     return thunk(function (cb) {
+//         cb(null, obj)
+//     })
+// }
+// exports.resolve = resolve
+//
+// function reject(obj) {
+//     return thunk(function (cb) {
+//         cb(obj)
+//     })
+// }
+// exports.reject = reject
 
 function from(promise) {
     return thunk(function (cb) {
