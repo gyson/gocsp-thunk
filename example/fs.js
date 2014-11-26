@@ -1,9 +1,11 @@
 
 var thunk = require('..')
+var go = requrie('gocsp-go')
 
 var fs = thunk.ifyAll(require('fs'))
 
-fs.readFile(__filename, 'utf8')(function (err, val) {
-    if (err) { throw err }
-    console.log(val)
+go(function* () {
+
+    yield fs.readFile(__filename, 'utf8')
+
 })

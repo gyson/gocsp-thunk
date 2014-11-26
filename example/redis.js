@@ -1,10 +1,11 @@
+
 var thunk = require('..')
 var redis = require('redis')
-var co = require('gocsp-co')
+var go = require('gocsp-go')
 
 var client = thunk.ifyAll(redis.createClient())
 
-co(function *(){
+go(function *(){
     yield client.set('foo', '123')
     yield client.set('bar', '456')
 
@@ -12,4 +13,4 @@ co(function *(){
     console.log('get bar:', yield client.get('bar'))
 
     console.log(yield client.quit())
-})()
+})

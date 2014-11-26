@@ -1,30 +1,45 @@
 
+var test = require('tape')
 var thunk = require('..')
-var assert = require('assert')
 
-describe('cancel', function () {
-    it('should call onCancel after cancellation', function (done) {
-        var cancelled = true
-        var th = thunk(function () {
+test('should call onCancel after cancellation', function (t) {
+    t.plan(1)
+    var cancelled = true
+    var th = thunk(function () {
 
-        }, function onCancel() {
-            done()
-        })
-        setTimeout(function () {
-            th() // => cancel
-        }, 10)
+    }, function onCancel() {
+        t.assert(cancelled)
     })
-    it('should not fulfill or reject after cancellation', function (done) {
-        var th = thunk(function (cb) {
-            setTimeout(function () {
-                cb(new Error)
-            }, 100)
-        }, function onCancel() {
-            done()
-        })
-        th(done)
-        setTimeout(function () {
-            th()
-        }, 20)
+
+    th(function () {
+        cancelled = false
     })
+
+    setTimeout(function () {
+        th() // => cancel
+    }, 10)
+})
+
+test('should not fulfill or reject after cancellation', function (t) {
+    t.plan(2)
+    var th = thunk(function (cb) {
+        setTimeout(function () {
+            cb(new Error)
+        }, 50)
+    }, function onCancel() {
+        t.assert(cancelled)
+    })
+
+    var cancelled = true
+    th(function () {
+        cancelled = false // should never execute this
+    })
+
+    setTimeout(function () {
+        th()
+    }, 20)
+
+    setTimeout(function () {
+        t.assert(cancelled)
+    }, 100)
 })
