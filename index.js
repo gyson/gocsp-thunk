@@ -6,20 +6,65 @@ module.exports = exports = thunk
 var nextTick = (process && process.nextTick) || setImmediate
             || function (fn) { setTimeout(fn, 0) }
 
-// error isolation
-function tryCatch(fn, args) {
-    try {
-        // little optimization for common case
-        switch (args.length) {
-        case 0:  return fn()
-        case 1:  return fn(args[0])
-        case 2:  return fn(args[0], args[1])
-        default: return fn.apply(void 0, args)
+// 0 - no stack trace support
+// 1 - stack trace with filter
+// 2 - full stack and source map
+var DEBUG_MODE = 0
+
+// is node and `--gocsp-thunk-debug 0/1/2`
+// check if it's debug mode
+if (process && process.argv) {
+    var cmd = process.argv.join(' ')
+    if (cmd.match(/--gocsp-thunk-debug 1/)) {
+        DEBUG_MODE = 1
+    }
+    if (cmd.match(/--gocsp-thunk-debug 2/)) {
+        DEBUG_MODE = 2
+    }
+}
+
+var ignore = new RegExp(''
+    + 'gocsp\-thunk/index.js:|'
+    + 'gocsp\-go/index.js:|'
+    + 'timers.js:|module.js:|fs.js:|'
+    + 'GeneratorFunctionPrototype.next'
+)
+
+// attach more stack message to Error instance
+function attach(err, stack) {
+    if (err && typeof err.stack === 'string') {
+        if (DEBUG_MODE === 1) {
+            var lines = stack.split('\n').slice(1)
+                        .filter(function (line) {
+                            return !line.match(ignore)
+                        })
+            if (lines.length > 0) {
+                err.stack += '\n----\n' + lines.join('\n')
+            }
+        } else {
+            err.stack += '\n----\n' + stack
         }
+    }
+    return err
+}
+
+// it's not allowed to have exception within listener callbacks
+function invokeListener(listener, err, val) {
+    try {
+        listener(err, val)
     } catch (e) {
+        // panic, probably crash program
         nextTick(function () {
-            throw e // error within callback
+            throw e // error within thunk listener callback
         })
+    }
+}
+
+function execute(init, done) {
+    try {
+        init(done)
+    } catch (e) {
+        done(e)
     }
 }
 
@@ -28,38 +73,41 @@ function tryCatch(fn, args) {
         done(null, 'value')
     })
 */
-function thunk(fn, onCancel) {
+function thunk(init, onCancel) {
     if (this && this.constructor === thunk) {
         throw new TypeError(
             'thunk is not a constructor function, call it w/o `new`')
     }
-    var noCallback = true
+    var noListener = true
     var cancelled = false
     var called = false
-    var args, first, rest = []
+    var listeners = []
+    var error, value, stack
 
-    fn(function done(err) {
+    if (DEBUG_MODE) {
+        stack = new Error().stack
+    }
+
+    execute(init, function done(err, val) {
         if (called || cancelled) { return }
         called = true
-        //args = arguments
-        args = new Array(arguments.length)
-        for (var i = 0; i < arguments.length; i++) {
-            args[i] = arguments[i]
-        }
 
-        if (noCallback) {
-            if (err) {
+        error = DEBUG_MODE ? attach(err, stack) : err
+        value = val
+
+        if (noListener) {
+            if (error) {
                 nextTick(function () {
-                    if (noCallback) {
-                        throw err // uncaught exception
+                    if (noListener) {
+                        throw error // uncaught exception
                     }
                 })
             }
         } else {
-            tryCatch(first, args)
-            for (var i = 0; i < rest.length; i++) {
-                tryCatch(rest[i], args)
+            for (var i = 0; i < listeners.length; i++) {
+                invokeListener(listeners[i], error, value)
             }
+            listeners = null
         }
     })
 
@@ -74,10 +122,10 @@ function thunk(fn, onCancel) {
                 return false
             }
             cancelled = true
-            first = null // clear callbacks if any
-            rest = null
-            onCancel()
-            return true // return onCancel() ?
+            listeners = null
+            onCancel() // it may throw exception, caller should deal with it.
+            return true
+            // return onCancel()
 
         case 1:
             // check state of thunk
@@ -86,6 +134,12 @@ function thunk(fn, onCancel) {
             switch (arg0) {
             case 'isDone':
                 return called
+
+            case 'getError':
+                return error
+
+            case 'getValue':
+                return value
 
             case 'isCancelled':
                 return cancelled
@@ -98,27 +152,24 @@ function thunk(fn, onCancel) {
 
             default:
                 if (typeof arg0 !== 'function') {
-                    throw new Error(arg0 +
-                        ' is not a valid command (isDone, isCancelled,' +
-                        ' isCancellable, cancel) or function')
+                    throw new Error(arg0
+                        + ' is not a valid command (isDone, isCancelled,'
+                        + ' isCancellable, cancel) or function')
                 }
                 if (cancelled) {
                     throw new Error('Cannot listen after cancellation')
                     // return false // fail to listen a cancalled thunk
                 }
+                noListener = false
+
                 if (called) {
                     // error isolation
                     // isolate this sync error to be consistent
                     // with async error isolation
-                    tryCatch(arg0, args)
+                    invokeListener(arg0, error, value)
                 } else {
-                    if (noCallback) {
-                        first = arg0
-                    } else {
-                        rest.push(arg0)
-                    }
+                    listeners.push(arg0)
                 }
-                noCallback = false
                 return
             }
 
@@ -145,11 +196,13 @@ function isThunk(obj) {
 // compatible with js world w/o Function.name (e.g. IE)
 if ((function named() {}).name !== 'named') {
     var _thunk = thunk
-    thunk = function (fn) {
-        var th = _thunk(fn)
+    // override
+    thunk = function thunk(fn, onCancel) {
+        var th = _thunk(fn, onCancel)
         th.__thunk__ = true
         return th
     }
+    // override
     isThunk = function (obj) {
         return typeof obj === 'function' && obj.__thunk__
     }
@@ -157,21 +210,6 @@ if ((function named() {}).name !== 'named') {
 
 exports.Thunk = exports.thunk = thunk
 exports.isThunk = isThunk
-
-// need to optimize `resolve` and `reject` ?
-// function resolve(obj) {
-//     return thunk(function (cb) {
-//         cb(null, obj)
-//     })
-// }
-// exports.resolve = resolve
-//
-// function reject(obj) {
-//     return thunk(function (cb) {
-//         cb(obj)
-//     })
-// }
-// exports.reject = reject
 
 function from(promise) {
     return thunk(function (cb) {
@@ -182,11 +220,32 @@ function from(promise) {
 }
 exports.from = from
 
+// convert object (callback, promise) to thunk
+// it always return a thunk
+function toThunk(obj) {
+    if (isThunk(obj)) {
+        return obj
+    }
+    // promise
+    if (obj && typeof obj.then === 'function') {
+        return from(obj)
+    }
+    // just callbacks
+    if (typeof obj === 'function') {
+        return thunk(obj)
+    }
+    // error, invalid type
+    return thunk(function () {
+        throw new TypeError(obj + ' is not thunk, callback, or promise.')
+    })
+}
+exports.toThunk = toThunk
+
 function thunkify(fn) {
     if (typeof fn !== 'function') {
         throw new TypeError(fn + ' must be function')
     }
-    return function /*__thunkified__*/() {
+    return function /* __thunkified__ */() {
         var ctx = this
         var len = arguments.length
         var args = new Array(len + 1)
