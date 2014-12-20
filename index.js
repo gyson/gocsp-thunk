@@ -1,7 +1,8 @@
-
-'use strict'
+'use strict';
 
 module.exports = exports = thunk
+
+var VERSION = 0.0 // 0.0.5 now
 
 var nextTick = (process && process.nextTick) || setImmediate
             || function (fn) { setTimeout(fn, 0) }
@@ -60,9 +61,9 @@ function invokeListener(listener, err, val) {
     }
 }
 
-function execute(init, done) {
+function execute(init, done, defer) {
     try {
-        init(done)
+        init(done, defer)
     } catch (e) {
         done(e)
     }
@@ -72,27 +73,31 @@ function execute(init, done) {
     thunk(function (done) {
         done(null, 'value')
     })
+    // yield new Channel('invalid arguments')
 */
 function thunk(init, onCancel) {
     if (this && this.constructor === thunk) {
         throw new TypeError(
-            'thunk is not a constructor function, call it w/o `new`')
+                'thunk is not a constructor function, call it w/o `new`')
     }
+
+    var called = false
     var noListener = true
     var cancelled = false
-    var called = false
     var listeners = []
-    var error, value, stack
+    var error, value, e
 
     if (DEBUG_MODE) {
-        stack = new Error().stack
+        e = new Error() // lazy evaluate `.stack`
     }
 
-    execute(init, function done(err, val) {
+    execute(init, done, __thunk__)
+
+    function done(err, val) {
         if (called || cancelled) { return }
         called = true
 
-        error = DEBUG_MODE ? attach(err, stack) : err
+        error = err && DEBUG_MODE ? attach(err, e.stack) : err
         value = val
 
         if (noListener) {
@@ -107,59 +112,22 @@ function thunk(init, onCancel) {
             for (var i = 0; i < listeners.length; i++) {
                 invokeListener(listeners[i], error, value)
             }
-            listeners = null
         }
-    })
+    }
 
-    return function __thunk__(arg0, arg1) {
-        switch (arguments.length) {
-        case 0:
-            // cancel
-            if (typeof onCancel !== 'function') {
-                throw new Error('This thunk is uncancellable')
-            }
-            if (called || cancelled) {
-                return false
-            }
-            cancelled = true
-            listeners = null
-            onCancel() // it may throw exception, caller should deal with it.
-            return true
-            // return onCancel()
+    function __thunk__(arg0, arg1) {
+        // return state.handle(arg0, arg1)
+        if (typeof arg0 === 'function') {
+            if (typeof arg1 === 'function') {
+                // convert thunk to promise
+                // e.g. new Promise(__thunk__: resolve, reject)
+                __thunk__(function (err, val) {
+                    //    reject      resolve
+                    err ? arg1(err) : arg0(val)
+                })
+            } else {
+                if (cancelled) { return }
 
-        case 1:
-            // check state of thunk
-            // thunkFn('isDone') => boolean
-            // thunkFn('isCancelled') => boolean
-            switch (arg0) {
-            case 'isDone':
-                return called
-
-            case 'getError':
-                return error
-
-            case 'getValue':
-                return value
-
-            case 'isCancelled':
-                return cancelled
-
-            case 'isCancellable':
-                return typeof onCancel === 'function'
-
-            case 'cancel':
-                return __thunk__()
-
-            default:
-                if (typeof arg0 !== 'function') {
-                    throw new Error(arg0
-                        + ' is not a valid command (isDone, isCancelled,'
-                        + ' isCancellable, cancel) or function')
-                }
-                if (cancelled) {
-                    throw new Error('Cannot listen after cancellation')
-                    // return false // fail to listen a cancalled thunk
-                }
                 noListener = false
 
                 if (called) {
@@ -170,26 +138,52 @@ function thunk(init, onCancel) {
                 } else {
                     listeners.push(arg0)
                 }
-                return
             }
-
-        case 2:
-            // convert thunk to promise if length === 2
-            // e.g. new Promise(__thunk__) ==> new promise instance
-            var resolve = arg0
-            var reject  = arg1
-            __thunk__(function (err, val) {
-                err ? reject(err) : resolve(val)
-            })
             return
-
-        default:
-            throw new Error('invalid number of arguments')
         }
+
+        switch (arg0) {
+        case 'isDone':
+            return called
+
+        case 'getError':
+            return error
+
+        case 'getValue':
+            return value
+
+        case 'isCanceled':
+        case 'isCancelled':
+            return cancelled
+
+        case 'isCancelable':
+        case 'isCancellable':
+            return typeof onCancel === 'function'
+
+        case 'version':
+            return VERSION
+
+        case 'cancel':
+            if (typeof onCancel !== 'function') {
+                throw new Error('This thunk is uncancellable')
+            }
+            if (called || cancelled) {
+                return void 0
+            }
+            cancelled = true
+            listeners = null
+            return onCancel(arg1) // it may throw exception, caller should deal with it.
+        }
+
+        throw new TypeError('invalid arguments')
     }
+
+    return __thunk__
 }
 
 function isThunk(obj) {
+    // function __thunk__(a0, a1, a2, a3, a4, a5, a6, a7, a8, a9)
+    // typeof obj === 'function' && obj.length === 10
     return typeof obj === 'function' && obj.name === '__thunk__'
 }
 
@@ -199,36 +193,31 @@ if ((function named() {}).name !== 'named') {
     // override
     thunk = function thunk(fn, onCancel) {
         var th = _thunk(fn, onCancel)
-        th.__thunk__ = true
+        th.__thunk__ = th
         return th
     }
     // override
     isThunk = function (obj) {
-        return typeof obj === 'function' && obj.__thunk__
+        return typeof obj === 'function' && obj.__thunk__ === obj
     }
 }
 
 exports.Thunk = exports.thunk = thunk
 exports.isThunk = isThunk
 
-function from(promise) {
-    return thunk(function (cb) {
-        promise.then(function (val) {
-            cb(null, val)
-        }, cb)
-    })
-}
-exports.from = from
-
 // convert object (callback, promise) to thunk
 // it always return a thunk
-function toThunk(obj) {
+function from(obj) {
     if (isThunk(obj)) {
         return obj
     }
     // promise
     if (obj && typeof obj.then === 'function') {
-        return from(obj)
+        return thunk(function (cb) {
+            promise.then(function (val) {
+                cb(null, val)
+            }, cb)
+        })
     }
     // just callbacks
     if (typeof obj === 'function') {
@@ -239,7 +228,8 @@ function toThunk(obj) {
         throw new TypeError(obj + ' is not thunk, callback, or promise.')
     })
 }
-exports.toThunk = toThunk
+exports.from = from
+exports.toThunk = from
 
 function thunkify(fn) {
     if (typeof fn !== 'function') {
