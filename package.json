@@ -1,10 +1,10 @@
 {
   "name": "gocsp-thunk",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node --harmony test.js"
   },
   "author": "gyson <eilian.yunsong@gmail.com>",
   "license": "MIT",
