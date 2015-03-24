@@ -1,10 +1,11 @@
 
 var fs = require('fs')
 var co = require('gocsp-co')
+var go = require('gocsp-go')
 var nodeThunkify = require('thunkify')
-var gocspThunkify = require('gocsp-thunk').thunkify
-var bluebirdPromisify = require('bluebird').promisify
-var bluebirdZalgoPromisify = require('bluebird/js/zalgo/bluebird.js').promisify
+var gocspThunkify = require('../index').thunkify
+var Bluebird = require('bluebird')
+var BluebirdZalgo = require('bluebird/js/zalgo/bluebird.js')
 
 // RESULT: no much difference
 // $ nask bench bench/thunkify.js
@@ -14,27 +15,87 @@ var bluebirdZalgoPromisify = require('bluebird/js/zalgo/bluebird.js').promisify
 // bluebird-zalgo-promisify x 532 ops/sec ±1.42% (76 runs sampled)
 // Fastest is gocsp-thunk.ify
 
+var n = 5
+
 function test(stat, done) {
-    co.spawn(function* () {
-        for (var i = 0; i < 10; i++) {
+    go(function* () {
+        for (var i = 0; i < n; i++) {
             yield stat(__filename)
+            // yield process.nextTick
             //console.log(yield stat(__filename))
         }
     })(done)
 }
 
-exports['node-thunkify'] = function (done) {
-    test(nodeThunkify(fs.stat), done)
+var fn = fs.readFile
+
+exports['baseline'] = function (done) {
+    var i = 0
+    next()
+    function next() {
+        if (i < n) {
+            i++
+            fn(__filename, next)
+        } else {
+            done()
+        }
+    }
 }
+
+var thunking = gocspThunkify(fn)
+exports['baseline - thunkified'] = function (done) {
+    var i = 0
+    next()
+    function next() {
+        if (i < n) {
+            i++
+            thunking(__filename)(next)
+        } else {
+            done()
+        }
+    }
+}
+
+var nodeThunkifiedStat = nodeThunkify(fn)
+
+exports['node-thunkify'] = function (done) {
+    go(function* () {
+        for (var i = 0; i < n; i++) {
+            yield nodeThunkifiedStat(__filename)
+        }
+        done()
+    })
+}
+
+var gocspThunkifiedStat = gocspThunkify(fn)
 
 exports['gocsp-thunk.ify'] = function (done) {
-    test(gocspThunkify(fs.stat), done)
+    go(function* () {
+        for (var i = 0; i < n; i++) {
+            yield gocspThunkifiedStat(__filename)
+        }
+        done()
+    })
 }
+
+var bluebirdPromisifiedStat = Bluebird.promisify(fn)
 
 exports['bluebird-promisify'] = function (done) {
-    test(bluebirdPromisify(fs.stat), done)
+    Bluebird.coroutine(function* () {
+        for (var i = 0; i < n; i++) {
+            yield bluebirdPromisifiedStat(__filename)
+        }
+        done()
+    })()
 }
 
+var bluebirdZalgoPromisifiedStat = BluebirdZalgo.promisify(fn)
+
 exports['bluebird-zalgo-promisify'] = function (done) {
-    test(bluebirdZalgoPromisify(fs.stat), done)
+    BluebirdZalgo.coroutine(function* () {
+        for (var i = 0; i < n; i++) {
+            yield bluebirdZalgoPromisifiedStat(__filename)
+        }
+        done()
+    })()
 }

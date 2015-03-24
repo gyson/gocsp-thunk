@@ -3,6 +3,12 @@
 
 Thunk as a compatible alternative to Promise
 
+## Note
+
+This repository is just an raw experiment and not a proper thunk reference.
+
+If you are looking for a robust or detailed thunk implementation, you may want to check out [thunks](https://github.com/thunks/thunks).
+
 ## Install
 
 ```

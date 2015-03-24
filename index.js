@@ -12,6 +12,7 @@ var nextTick = (process && process.nextTick) || setImmediate
 // 2 - full stack and source map
 var DEBUG_MODE = 0
 
+// --gocsp-debug 0, 1, 2
 // is node and `--gocsp-thunk-debug 0/1/2`
 // check if it's debug mode
 if (process && process.argv) {
